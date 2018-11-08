@@ -35,18 +35,20 @@
                     (let [sock (:socket @socket-atom)
                           buffer-size (:buffer-size @socket-atom)
                           address (.getRemoteSocketAddress sock)]
-                      (reset! socket-atom
-                              (db-factory
-                                (socket-factory address)
-                                buffer-size))))]
+                      (try
+                        (reset! socket-atom
+                                (db-factory
+                                  (socket-factory address)
+                                  buffer-size))
+                        (catch SocketException e))))]
     (go-loop []
       (println "Checking...")
       (<! (timeout interval))
-      (if (.isClosed (:socket @socket-atom))
+      (if (.isClosed (:socket @socket-atom)) ; TODO: this is actually worthless
         (do
           (println "Attempting Reconnect...")
-          (reconnect)
-          (.close (:socket @socket-atom))))
+          (.close (:socket @socket-atom))
+          (reconnect)))
       (if @poisoned
         (.close (:socket @socket-atom))
         (recur)))

@@ -10,9 +10,9 @@
     (.setKeepAlive sock true)
     sock))
 
-(defn read-bytes!
+(defn start-socket-read!
   [input-stream buffer-size stream-closed-cb]
-  (let [read-channel (chan) kill-chan (chan)
+  (let [read-channel (chan)
         start-read (fn [raw-buffer]
                      (try
                        (let [count (.read input-stream raw-buffer)]
@@ -22,15 +22,13 @@
                            (stream-closed-cb)
                            :closed))))]
     (go-loop []
-      (println "Read Loop Still Running")
       (let [data (start-read (byte-array buffer-size))]
         (if (= data :closed)
-          :closed
+          data
           (do
             (put! read-channel data)
             (recur)))))
-    {:kill-chan kill-chan
-     :read-chan read-channel}))
+    read-channel))
 
 (defn structure
   "Prototyping"

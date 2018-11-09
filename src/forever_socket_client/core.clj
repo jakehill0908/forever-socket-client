@@ -1,18 +1,24 @@
 (ns forever-socket-client.core
-  (:import [java.net Socket InetAddress InetSocketAddress SocketException])
+  (:import [java.net Socket InetAddress InetSocketAddress SocketException ConnectException])
   (:require [clojure.core.async :refer [put! <! chan go-loop timeout]]))
 
 (declare start-socket-read!)
 (declare socket-write)
 (declare socket)
 
-(defn db-factory
-  "Build map containing socket peripherals"
-  [^Socket sock ^Integer read-buffer-size]
-  {:read-channel (start-socket-read! (.getInputStream sock) read-buffer-size)
-   :write (socket-write (.getOutputStream sock))
-   :socket sock
-   :buffer-size read-buffer-size})
+(defn setup-read-hook
+  "Run a supplied callback with received data"
+  [sock data-recv-cb]
+  (go-loop []
+    (let [data (<! (:read @sock))]
+      (if (= (type (chan)) (type data))
+        (<! data)
+        (data-recv-cb data))
+      (recur))))
+
+(defn write-to-socket
+  [sock data]
+  ((:write @sock) data))
 
 (defn socket-factory
   "Instantiate a java socket with SO_KEEPALIVE"
@@ -26,45 +32,43 @@
      sock)))
 
 (defn socket-watcher
-  "Watch socket to make sure it is not closed, if it is attempt to reconnect"
-  [interval socket-db]
-  (let [poisoned (atom false)
-        stop-watcher (fn [] (reset! poisoned true))
-        socket-atom (atom (assoc socket-db :disconnect stop-watcher))
-        reconnect (fn []
-                    (let [sock (:socket @socket-atom)
-                          buffer-size (:buffer-size @socket-atom)
-                          address (.getRemoteSocketAddress sock)]
-                      (try
-                        (reset! socket-atom
-                                (db-factory
-                                  (socket-factory address)
-                                  buffer-size))
-                        (catch SocketException e))))]
+  "Watch for socket close event and attempt to reconnect"
+  [retry-interval buffer-size sock]
+  (let [close-notify-chan (chan)
+        reconnected-notify-chan (atom nil)
+        close-notify (fn [reconnected-chan]
+                       (do
+                         (reset! reconnected-notify-chan reconnected-chan)
+                         (put! close-notify-chan :closed))) ; Allow read to signal socket closed
+        socket-atom (atom {:socket sock
+                           :read (start-socket-read! (.getInputStream sock) buffer-size close-notify)
+                           :write (socket-write (.getOutputStream sock))})]
     (go-loop []
-      (println "Checking...")
-      (<! (timeout interval))
-      (if (.isClosed (:socket @socket-atom)) ; TODO: this is actually worthless
+      (when-let [_ (<! close-notify-chan)]
         (do
-          (println "Attempting Reconnect...")
-          (.close (:socket @socket-atom))
-          (reconnect)))
-      (if @poisoned
-        (.close (:socket @socket-atom))
-        (recur)))
+          (println (format "Socket Disconnected Retrying Connection in %s seconds" (/ retry-interval 1000)))
+          (<! (timeout retry-interval))
+          (try
+            (let [new-socket (socket-factory (.getRemoteSocketAddress (:socket @socket-atom)))]
+              (reset! socket-atom {:socket new-socket
+                                   :read (start-socket-read! (.getInputStream new-socket) buffer-size close-notify)
+                                   :write (socket-write (.getOutputStream new-socket))})
+              (println "Socket Reconnected")
+              (put! @reconnected-notify-chan :reconnected))
+            (catch ConnectException _
+              (println "Failed to Reconnect Trying Again")
+              (put! close-notify-chan :closed)))))
+      (recur))
     socket-atom))
 
 (defn socket
   "Instantiate a java socket with SO_KEEPALIVE"
-  ([^String host ^Integer port ^Integer read-buffer-size ^Integer watcher-interval]
-   (socket-watcher watcher-interval
-     (db-factory (socket-factory host port) read-buffer-size)))
-  ([^String host ^Integer port ^Integer read-buffer-size]
-   (socket-watcher 1000
-     (db-factory (socket-factory host port) read-buffer-size)))
+  ([^String host ^Integer port ^Integer read-buffer-size ^Integer retry-interval]
+   (socket-watcher retry-interval read-buffer-size
+                   (socket-factory host port)))
   ([^String host ^Integer port]
-   (socket-watcher 1000
-     (db-factory (socket-factory host port) 2048))))
+   (socket-watcher 5000 2048
+                   (socket-factory host port))))
 
 (defn socket-write
   "Closure for simpler write to socket"
@@ -76,25 +80,33 @@
 
 (defn start-socket-read!
   "Setup a receive channel and shuffle data to it on receive"
-  [input-stream buffer-size]
+  [input-stream buffer-size close-notify]
   (let [read-channel (chan)
         start-read (fn [raw-buffer]
                      (try
                        (let [count (.read input-stream raw-buffer)]
                          (byte-array (take count raw-buffer)))
                        (catch SocketException e
-                         (println "Socket Closed")
                          :closed)))]
     (go-loop []
       (let [data (start-read (byte-array buffer-size))]
         (if (= data :closed)
-          nil
+          (do
+            (let [reconnected-channel (chan)]
+              (put! read-channel reconnected-channel)
+              (close-notify reconnected-channel))
+            nil)
           (do
             (put! read-channel data)
             (recur)))))
     read-channel))
 
 (defn str-to-bytes
-  "Convert things to bytes"
+  "Convert str to bytes"
   [^String input]
   (byte-array (map (comp byte char) input)))
+
+(defn bytes-to-str
+  "Convert bytes to str"
+  [data]
+  (apply str (map char data)))

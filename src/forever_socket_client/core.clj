@@ -46,23 +46,20 @@
     (go-loop []
       (when-let [_ (<! close-notify-chan)]
         (do
-          (println (format "Socket Disconnected Retrying Connection in %s seconds" (/ retry-interval 1000)))
           (<! (timeout retry-interval))
           (try
             (let [new-socket (socket-factory (.getRemoteSocketAddress (:socket @socket-atom)))]
               (reset! socket-atom {:socket new-socket
                                    :read (start-socket-read! (.getInputStream new-socket) buffer-size close-notify)
                                    :write (socket-write (.getOutputStream new-socket))})
-              (println "Socket Reconnected")
               (put! @reconnected-notify-chan :reconnected))
             (catch ConnectException _
-              (println "Failed to Reconnect Trying Again")
               (put! close-notify-chan :closed)))))
       (recur))
     socket-atom))
 
 (defn socket
-  "Instantiate a java socket with SO_KEEPALIVE"
+  "Instantiate a socket with watcher which will attempt to reconnect"
   ([^String host ^Integer port ^Integer read-buffer-size ^Integer retry-interval]
    (socket-watcher retry-interval read-buffer-size
                    (socket-factory host port)))

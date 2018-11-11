@@ -4,7 +4,6 @@ A Clojure library that creates socket clients that don't disconnect.  Use at you
 
 ## Usage
 
-Creating a socket
 ```clojure
 (ns my-namespace
   (:require [forever-socket-client.core :refer [socket str-to-bytes bytes-to-str]])) ; Import

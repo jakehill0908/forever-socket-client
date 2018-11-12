@@ -4,6 +4,8 @@ An extremely simple Clojure library that creates asynchronous socket clients tha
 
 Uses only standard java.net Sockets and core.async
 
+`[forever-socket-client "1.0.0"]`
+
 ## Usage
 
 ```clojure

@@ -6,14 +6,14 @@
 (declare socket-write)
 (declare socket)
 
-(defn setup-read-hook
+(defn setup-read-callback
   "Run a supplied callback with received data"
   [sock data-recv-cb]
   (go-loop []
-    (let [data (<! (:read @sock))]
-      (if (= (type (chan)) (type data))
-        (<! data)
-        (data-recv-cb data))
+    (let [data (<! (:read @sock))] ; Read data from socket stream
+      (if (= (type (chan)) (type data)) ; If it is a channel the socket has disconnected
+        (<! data) ; Wait for reconnect
+        (data-recv-cb data)) ; Send received data to callback
       (recur))))
 
 (defn write-to-socket
@@ -36,7 +36,7 @@
   [retry-interval buffer-size sock]
   (let [close-notify-chan (chan)
         reconnected-notify-chan (atom nil)
-        close-notify (fn [reconnected-chan]
+        close-notify (fn [reconnected-chan] ; Start retry loop, takes a new channel that can be used to unblock reader
                        (do
                          (reset! reconnected-notify-chan reconnected-chan)
                          (put! close-notify-chan :closed))) ; Allow read to signal socket closed
@@ -44,17 +44,16 @@
                            :read (start-socket-read! (.getInputStream sock) buffer-size close-notify)
                            :write (socket-write (.getOutputStream sock))})]
     (go-loop []
-      (when-let [_ (<! close-notify-chan)]
-        (do
-          (<! (timeout retry-interval))
-          (try
-            (let [new-socket (socket-factory (.getRemoteSocketAddress (:socket @socket-atom)))]
-              (reset! socket-atom {:socket new-socket
-                                   :read (start-socket-read! (.getInputStream new-socket) buffer-size close-notify)
-                                   :write (socket-write (.getOutputStream new-socket))})
-              (put! @reconnected-notify-chan :reconnected))
-            (catch ConnectException _
-              (put! close-notify-chan :closed)))))
+      (<! close-notify-chan) ; Wait for socket to close
+      (<! (timeout retry-interval)) ; Wait for retry interval
+      (try ; Attempt to reconnect
+        (let [new-socket (socket-factory (.getRemoteSocketAddress (:socket @socket-atom)))]
+          (reset! socket-atom {:socket new-socket ; Update socket atom with new connection
+                               :read (start-socket-read! (.getInputStream new-socket) buffer-size close-notify)
+                               :write (socket-write (.getOutputStream new-socket))})
+          (put! @reconnected-notify-chan :reconnected)) ; Notify read-hook of reconnection
+        (catch ConnectException _
+          (put! close-notify-chan :closed))) ; close-notify-chan should not block since connection is still closed
       (recur))
     socket-atom))
 
@@ -70,10 +69,9 @@
 (defn socket-write
   "Closure for simpler write to socket"
   [output-stream]
-  (let [send-to-socket (fn [data]
-                         (.write output-stream data 0 (count data))
-                         (.flush output-stream))]
-    send-to-socket))
+  (fn [data]
+    (.write output-stream data 0 (count data))
+    (.flush output-stream)))
 
 (defn start-socket-read!
   "Setup a receive channel and shuffle data to it on receive"
@@ -88,10 +86,9 @@
     (go-loop []
       (let [data (start-read (byte-array buffer-size))]
         (if (= data :closed)
-          (do
-            (let [reconnected-channel (chan)]
-              (put! read-channel reconnected-channel)
-              (close-notify reconnected-channel))
+          (let [reconnected-channel (chan)]
+            (put! read-channel reconnected-channel)
+            (close-notify reconnected-channel)
             nil)
           (do
             (put! read-channel data)

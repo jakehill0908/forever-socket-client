@@ -1,4 +1,4 @@
-(defproject forever-socket-client "1.0.0"
+(defproject forever-socket-client "1.1.0"
   :description "Async Socket clients that attempt to stay connected to the server forever"
   :url "https://github.com/jakehill0908/forever-socket-client"
   :scm {:url "git@github.com:jakehill0908/forever-socket-client.git"}

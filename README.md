@@ -19,4 +19,6 @@ Uses only standard java.net Sockets and core.async
 
 (setup-read-callback mysock (fn [data] ; Only one callback can be assigned per socket
                                 (println (bytes-to-str data)))) ; Setup callback function for received bytes
+
+((:stop @mysock)) ; Shutdown async processes and close socket connection
 ```

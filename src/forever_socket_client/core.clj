@@ -56,6 +56,7 @@
         socket-atom (atom (socket-db-factory sock buffer-size close-notify stop-notify))]
     (go-loop []
       (when-let [signal (<! close-notify-chan)]
+        (println "Attempting to reconnect: " (.toString (.getRemoteSocketAddress (:socket @socket-atom))))
         (if (= signal :stopped)
           (let [{:keys [read socket]} @socket-atom]
             (put! read :stopped)
@@ -65,7 +66,8 @@
             (try ; Attempt to reconnect
               (let [new-socket (socket-factory (.getRemoteSocketAddress (:socket @socket-atom)))]
                 (reset! socket-atom (socket-db-factory new-socket buffer-size close-notify stop-notify))
-                (put! @reconnected-notify-chan :reconnected)) ; Notify read-hook of reconnection
+                (put! @reconnected-notify-chan :reconnected)
+                (println "Reconnected to: " (.toString (.getRemoteSocketAddress (:socket @socket-atom))))) ; Notify read-hook of reconnection
               (catch ConnectException _
                 (<! (timeout retry-interval)) ; Wait for retry interval
                 (put! close-notify-chan :closed)))
@@ -96,7 +98,9 @@
         start-read (fn [raw-buffer]
                      (try
                        (let [count (.read input-stream raw-buffer)]
-                         (byte-array (take count raw-buffer)))
+                         (if (not= -1 count)
+                           (byte-array (take count raw-buffer))
+                           :closed))
                        (catch SocketException e
                          :closed)))]
     (go-loop []

@@ -20,9 +20,9 @@ Uses only standard java.net.Sockets and clojure.core.async
  
 (fsc/write @socket (fsc/str-to-bytes "Hello World!"))           ; Write to socket
 
-(fsc/append-callback @socket #(printf "Received data: %s\n" %)) ; Receive data from socket async
+(fsc/append-callback @socket #(println (format "Received data: %s" %))) ; Receive data from socket async
 (fsc/append-callback @socket (fn [data]                         ; Multiple callbacks may be assigned
-                               (printf "Received %d Bytes\n" (count data))))
+                               (println (format "Received %d Bytes" (count data)))))
 
 (fsc/stop @socket) ; Exit async processes and close socket connection gracefully
 ```

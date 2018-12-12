@@ -63,6 +63,8 @@
   (let [fsocket-atom (atom forever-socket)]
     (go-loop []
       (when (not (= :stopped (<! (:event-channel @fsocket-atom))))
+        (let [remote-address (.getRemoteSocketAddress (:socket @fsocket-atom))]
+          (println (format "Attempting to reconnect: %s:%s" (.getAddress remote-address) (.getPort remote-address))))
         (when-let [fsocket (try
                              (->ForeverSocket (-> (:socket @fsocket-atom)
                                                   .getRemoteSocketAddress
@@ -74,6 +76,8 @@
                                (put! (:event-channel @fsocket-atom) :closed)
                                (<! (timeout retry-interval))
                                false))]
+          (let [remote-address (.getRemoteSocketAddress (:socket @fsocket-atom))]
+            (println (format "Reconnected to: %s:%s" (.getAddress remote-address) (.getPort remote-address))))
           (reset! fsocket-atom fsocket)
           (start-reader! @fsocket-atom))
         (recur)))

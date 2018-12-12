@@ -38,7 +38,7 @@
         (if (= count -1)
           :closed
           (byte-array (take count buffer))))
-      (catch SocketException e
+      (catch Exception e
         (if (= (.getMessage e) "Socket closed")
           :stopped
           :closed))))

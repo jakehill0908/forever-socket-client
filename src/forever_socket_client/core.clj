@@ -4,14 +4,14 @@
 
 (defprotocol SocketIO
   "IO protocols for ForeverSocket record"
-  (append-callback [this cb])
-  (start-reader! [this])
-  (read-stream [this])
-  (write [this data]))
+  (append-callback [this cb]) ; Add callback function with one arg for incoming data
+  (start-reader! [this])      ; Start loop on thread pool to handle incoming data
+  (read-stream [this])        ; Read stream and return either data or status
+  (write [this data]))        ; Write bytes to socket
 
 (defprotocol Stoppable
   "Implements stop function"
-  (stop [this]))
+  (stop [this]))              ; Stop all threads and gracefully close socket
 
 (defrecord ForeverSocket
   [socket buffer-size read-callbacks-atom event-channel]
@@ -27,7 +27,7 @@
     (go-loop []
       (let [read-result (read-stream this)]
         (if (keyword? read-result)
-          (put! event-channel read-result) ; Put event on channel and exit reader loop
+          (put! event-channel read-result)
           (do
             (doall (map #(% read-result) @read-callbacks-atom))
             (recur))))))
@@ -57,7 +57,8 @@
      socket)))
 
 (defn- wrap-socket-watcher!
-  "Wrap socket with watcher"
+  "Wrap socket with watcher that handles reconnection returns atom that allows user to
+  continue referencing the same object while a new socket is instantiated behind the scenes"
   [retry-interval forever-socket]
   (let [fsocket-atom (atom forever-socket)]
     (go-loop []

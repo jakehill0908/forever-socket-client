@@ -1,5 +1,5 @@
 (ns forever-socket-client.core
-  (:import [java.net Socket InetAddress InetSocketAddress SocketException ConnectException])
+  (:import [java.net Socket InetAddress InetSocketAddress ConnectException])
   (:require [clojure.core.async :refer [put! <! chan go-loop timeout]]))
 
 (defprotocol SocketIO

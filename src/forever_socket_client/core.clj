@@ -2,7 +2,7 @@
   (:import [java.net Socket InetAddress InetSocketAddress SocketException ConnectException])
   (:require [clojure.core.async :refer [put! <! chan go-loop timeout]]))
 
-(defprotocol IO
+(defprotocol SocketIO
   "IO protocols for ForeverSocket record"
   (append-callback [this cb])
   (start-reader! [this])
@@ -15,7 +15,7 @@
 
 (defrecord ForeverSocket
   [socket buffer-size read-callbacks-atom event-channel]
-  IO
+  SocketIO
   (append-callback [_ cb]
     (reset! read-callbacks-atom
             (conj @read-callbacks-atom cb)))
@@ -46,7 +46,7 @@
   (stop [_]
     (.close socket)))
 
-(defn java-net-factory
+(defn- java-net-factory
   ([hostname port]
    (let [socket (Socket. (InetAddress/getByName hostname) port)]
      (.setKeepAlive socket true)
@@ -56,7 +56,7 @@
      (.setKeepAlive socket true)
      socket)))
 
-(defn wrap-socket-watcher!
+(defn- wrap-socket-watcher!
   "Wrap socket with watcher"
   [retry-interval forever-socket]
   (let [fsocket-atom (atom forever-socket)]
